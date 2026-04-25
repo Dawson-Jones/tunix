@@ -1,4 +1,4 @@
-use cross_platform_tun::Configuration;
+use tunix::Configuration;
 use futures::StreamExt;
 use packet::ip::Packet;
 

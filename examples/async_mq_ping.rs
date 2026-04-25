@@ -1,4 +1,4 @@
-use cross_platform_tun::{TunPacketCodec, AsyncTun, Configuration, TunPacket};
+use tunix::{TunPacketCodec, AsyncTun, Configuration, TunPacket};
 use futures::{SinkExt, StreamExt};
 use packet::{icmp, ip, Builder, Packet};
 use tokio_util::codec::Framed;

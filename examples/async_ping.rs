@@ -1,4 +1,4 @@
-use cross_platform_tun::{Configuration, TunPacket};
+use tunix::{Configuration, TunPacket};
 use futures::{SinkExt, StreamExt};
 use packet::{icmp, ip, Builder, Packet};
 

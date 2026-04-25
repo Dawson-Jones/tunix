@@ -1,4 +1,4 @@
-use cross_platform_tun::Configuration;
+use tunix::Configuration;
 use std::io::Read;
 
 #[cfg(target_os = "linux")]
