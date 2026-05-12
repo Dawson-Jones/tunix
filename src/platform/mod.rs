@@ -17,6 +17,7 @@ pub use macos::tun;
 #[cfg(unix)]
 pub(crate) mod posix {
     pub mod fd;
+    pub mod name;
     pub mod sys;
 }
 

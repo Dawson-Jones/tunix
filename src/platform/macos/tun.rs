@@ -7,7 +7,7 @@ use std::{io, mem};
 use crate::address::Ipv4AddrExt;
 use crate::configuration::Layer;
 use crate::interface::Interface;
-use crate::platform::posix::fd::Fd;
+use crate::platform::posix::{fd::Fd, name::write_if_name};
 use crate::{configuration::Configuration, error::Error};
 use crate::{error::*, syscall};
 use libc::{c_char, c_uchar, c_uint, socklen_t};
@@ -77,6 +77,7 @@ impl Tun {
             libc::SOCK_DGRAM,
             libc::SYSPROTO_CONTROL
         ))?;
+        let tun_fd = Fd::new(tun_fd)?;
 
         // get ctl id with utun control name
         let mut info: libc::ctl_info = unsafe { std::mem::zeroed() };
@@ -86,7 +87,7 @@ impl Tun {
             .for_each(|(b, ptr)| *ptr = b as c_char);
         info.ctl_id = 0;
         syscall!(ioctl(
-            tun_fd,
+            tun_fd.as_raw_fd(),
             libc::CTLIOCGINFO,
             &mut info as *mut _ as *mut libc::c_void
         ))?;
@@ -100,7 +101,7 @@ impl Tun {
         addr.sc_unit = id as c_uint;
         // addr.sc_reserved = [0; 5];
         syscall!(connect(
-            tun_fd,
+            tun_fd.as_raw_fd(),
             &addr as *const libc::sockaddr_ctl as *const libc::sockaddr,
             mem::size_of::<libc::sockaddr_ctl>() as libc::socklen_t
         ))?;
@@ -111,7 +112,7 @@ impl Tun {
         let mut ifname = [0i8; libc::IFNAMSIZ];
         let mut len = ifname.len();
         syscall!(getsockopt(
-            tun_fd,
+            tun_fd.as_raw_fd(),
             libc::SYSPROTO_CONTROL,
             libc::UTUN_OPT_IFNAME,
             ifname.as_mut_ptr() as *mut libc::c_void,
@@ -127,20 +128,21 @@ impl Tun {
                     .to_string_lossy()
                     .to_string()
             },
-            queue: Queue {
-                tun: Fd::new(tun_fd)?,
-            },
+            queue: Queue { tun: tun_fd },
             ctl: Fd::new(ctl_fd)?,
         };
 
         tun.configure(config)?;
 
-        // use set_alias to ensure the netmask is set on macOS
-        tun.set_alias(
-            config.address.unwrap_or(Ipv4Addr::new(10, 0, 0, 1)),
-            config.destnation.unwrap_or(Ipv4Addr::new(10, 0, 0, 255)),
-            config.netmask.unwrap_or(Ipv4Addr::new(255, 255, 255, 0)),
-        )?;
+        // macOS needs SIOCAIFADDR for netmask changes to stick when an address is configured.
+        if let Some(address) = config.address {
+            tun.set_alias(
+                address,
+                // Without an explicit peer, keep alias setup local instead of inventing one.
+                config.destination.unwrap_or(address),
+                config.netmask.unwrap_or(Ipv4Addr::new(255, 255, 255, 0)),
+            )?;
+        }
 
         Ok(tun)
     }
@@ -148,26 +150,14 @@ impl Tun {
     fn ifreq(&self) -> libc::ifreq {
         let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
 
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.name.as_ptr() as *const c_char,
-                ifr.ifr_name.as_mut_ptr(),
-                self.name.len(),
-            )
-        };
+        write_if_name(&self.name, &mut ifr.ifr_name).expect("stored interface name must be valid");
 
         ifr
     }
 
     fn set_alias(&mut self, addr: Ipv4Addr, broadaddr: Ipv4Addr, mask: Ipv4Addr) -> Result<()> {
         let mut ifar: ifaliasreq = unsafe { mem::zeroed() };
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.name.as_ptr() as *const c_char,
-                ifar.ifra_name.as_mut_ptr(),
-                self.name.len(),
-            )
-        };
+        write_if_name(&self.name, &mut ifar.ifra_name)?;
 
         ifar.ifra_addr = addr.to_sockaddr();
         ifar.ifra_broadaddr = broadaddr.to_sockaddr();

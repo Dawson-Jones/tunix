@@ -101,19 +101,6 @@ pub trait Ipv4AddrExt {
     fn from_sockaddr(sock: libc::sockaddr) -> Self;
 }
 
-pub trait SockAddrExt<T> {
-    fn into_ipv4addr(self) -> T;
-}
-
-impl<T> SockAddrExt<T> for libc::sockaddr
-where
-    T: Ipv4AddrExt,
-{
-    fn into_ipv4addr(self) -> T {
-        T::from_sockaddr(self)
-    }
-}
-
 impl Ipv4AddrExt for Ipv4Addr {
     fn to_sockaddr(&self) -> libc::sockaddr {
         let mut addr: libc::sockaddr_in = unsafe { std::mem::zeroed() };

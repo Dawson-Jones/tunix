@@ -1,9 +1,9 @@
+#[cfg(target_os = "linux")]
 use tunix::Configuration;
-use std::io::Read;
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use std::{io, thread};
+    use std::{io, io::Read, thread};
 
     let tuns = Configuration::default()
         .address("10.0.0.9")
@@ -35,4 +35,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("multi_read requires Linux multi-queue TUN support");
 }

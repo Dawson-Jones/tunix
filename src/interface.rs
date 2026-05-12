@@ -11,7 +11,7 @@ pub trait Interface /*: Read + Write*/ {
             self.set_address(addr)?;
         }
 
-        if let Some(addr) = config.destnation {
+        if let Some(addr) = config.destination {
             self.set_destination(addr)?;
         }
 

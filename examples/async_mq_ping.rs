@@ -1,10 +1,17 @@
-use tunix::{TunPacketCodec, AsyncTun, Configuration, TunPacket};
+#[cfg(target_os = "linux")]
 use futures::{SinkExt, StreamExt};
-use packet::{icmp, ip, Builder, Packet};
+#[cfg(target_os = "linux")]
+use packet::{Builder, Packet, icmp, ip};
+#[cfg(target_os = "linux")]
 use tokio_util::codec::Framed;
+#[cfg(target_os = "linux")]
+use tunix::{AsyncTun, Configuration, TunPacket, TunPacketCodec};
 
-
-async fn reply_ping(number: usize, mut framed: Framed<AsyncTun, TunPacketCodec>) -> Result<(), Box<dyn std::error::Error>>{
+#[cfg(target_os = "linux")]
+async fn reply_ping(
+    number: usize,
+    mut framed: Framed<AsyncTun, TunPacketCodec>,
+) -> Result<(), Box<dyn std::error::Error>> {
     while let Some(packet) = framed.next().await {
         let pkt = packet?;
 
@@ -12,7 +19,12 @@ async fn reply_ping(number: usize, mut framed: Framed<AsyncTun, TunPacketCodec>)
             Ok(ip::Packet::V4(pkt)) => {
                 if let Ok(icmp) = icmp::Packet::new(pkt.payload()) {
                     if let Ok(icmp) = icmp.echo() {
-                        println!("mq: {}, {:?} - {:?}", number, icmp.sequence(), pkt.destination());
+                        println!(
+                            "mq: {}, {:?} - {:?}",
+                            number,
+                            icmp.sequence(),
+                            pkt.destination()
+                        );
 
                         let reply = ip::v4::Builder::default()
                             .id(0x42)?
@@ -39,6 +51,7 @@ async fn reply_ping(number: usize, mut framed: Framed<AsyncTun, TunPacketCodec>)
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queues = Configuration::default()
@@ -64,4 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     futures::future::join_all(conroutines).await;
 
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("async_mq_ping requires Linux multi-queue TUN support");
 }

@@ -11,16 +11,18 @@ pub enum PacketProtocol {
     Other(u8),
 }
 
+/// Infer the IP protocol from the first byte. Empty input is reported as `Other(0)`.
 pub fn infer_proto(pkt: &[u8]) -> PacketProtocol {
     // | version: 4bits | ihl: 4 bits | service: 8 bits | total length: 16 bits
     // | identification: 16 bits | flags: 3 bits, fragment offset: 13 bits
     // | time to live: 8 bits | protocol: 8 bits | header checksum: 16 bits
     // | source address: 32 bits
     // | destination address: 32 bits
-    match pkt[0] >> 4 {
-        4 => PacketProtocol::Ipv4,
-        6 => PacketProtocol::Ipv6,
-        p => PacketProtocol::Other(p),
+    match pkt.first().map(|byte| byte >> 4) {
+        Some(4) => PacketProtocol::Ipv4,
+        Some(6) => PacketProtocol::Ipv6,
+        Some(p) => PacketProtocol::Other(p),
+        None => PacketProtocol::Other(0),
     }
 }
 
@@ -103,12 +105,26 @@ impl Decoder for TunPacketCodec {
 
         // packet information
         if self.0 {
+            if pkt.len() < 4 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "packet information header is shorter than 4 bytes",
+                ));
+            }
+
             // reserve enough space for next packet
             buf.reserve(self.1 as usize + 4);
             // ignore the first 4 bytes
             let _ = pkt.split_to(4);
         } else {
             buf.reserve(self.1 as usize);
+        }
+
+        if pkt.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "packet payload is empty",
+            ));
         }
 
         let proto = infer_proto(pkt.as_ref());
@@ -138,5 +154,30 @@ impl Encoder<TunPacket> for TunPacketCodec {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PacketProtocol, TunPacketCodec, infer_proto};
+    use bytes::BytesMut;
+    use tokio_util::codec::Decoder;
+
+    #[test]
+    fn infer_proto_accepts_empty_packet() {
+        assert!(matches!(infer_proto(&[]), PacketProtocol::Other(0)));
+    }
+
+    #[test]
+    fn decoder_rejects_short_packet_information_header() {
+        let mut codec = TunPacketCodec::new(true, 1500);
+        let mut buf = BytesMut::from(&[0u8, 0, 8][..]);
+
+        let result = codec.decode(&mut buf);
+
+        assert!(matches!(
+            result,
+            Err(err) if err.kind() == std::io::ErrorKind::InvalidData
+        ));
     }
 }

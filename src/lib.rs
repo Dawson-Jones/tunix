@@ -8,34 +8,13 @@ pub mod interface;
 mod platform;
 pub use platform::tun;
 
-#[cfg(all(
-    feature = "async",
-    any(
-        target_os = "windows",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "android"
-    )
-))]
+#[cfg(all(feature = "async", any(target_os = "linux", target_os = "macos")))]
 mod r#async {
     pub mod codec;
     pub mod tun;
 }
-#[cfg(all(
-    feature = "async",
-    any(
-        target_os = "windows",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "android"
-    )
-))]
+#[cfg(all(feature = "async", any(target_os = "linux", target_os = "macos")))]
 pub use r#async::{
-    codec::TunPacket, 
-    codec::TunPacketCodec, 
+    codec::PacketProtocol, codec::TunPacket, codec::TunPacketCodec, codec::infer_proto,
     tun::AsyncTun,
-    codec::PacketProtocol,
-    codec::infer_proto,
 };
