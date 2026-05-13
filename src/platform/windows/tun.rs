@@ -10,7 +10,7 @@ use crate::{
     error::{Error, Result},
     interface::Interface,
 };
-use wintun::{load_from_path, Adapter, Session, MAX_RING_CAPACITY};
+use wintun::{Adapter, MAX_RING_CAPACITY, Session, load_from_path};
 
 use super::sys;
 
@@ -50,6 +50,7 @@ impl TunConf {
     }
 }
 
+#[derive(Clone)]
 pub struct Queue {
     session: Arc<Session>,
 }
@@ -158,7 +159,15 @@ impl Tun {
     }
 
     pub fn cancel_nonblocking(&self) -> io::Result<()> {
+        self.queue
+            .session
+            .shutdown()
+            .map_err(|err| io::Error::other(err.to_string()))?;
         Ok(())
+    }
+
+    pub(crate) fn reader_queue(&self) -> Queue {
+        self.queue.clone()
     }
 
     fn adapter(&self) -> Arc<Adapter> {

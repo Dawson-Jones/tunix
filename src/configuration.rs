@@ -3,11 +3,14 @@ use std::net::Ipv4Addr;
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
 
+#[cfg(all(
+    feature = "async",
+    any(target_os = "linux", target_os = "macos", target_os = "windows")
+))]
+use crate::AsyncTun;
 use crate::address::IntoIpv4Addr;
 use crate::error::{Error, Result};
 use crate::tun::{Tun, TunConf};
-#[cfg(all(feature = "async", any(target_os = "linux", target_os = "macos")))]
-use crate::AsyncTun;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Layer {
@@ -130,7 +133,10 @@ impl Configuration {
         Tun::new_multi_queue(self)
     }
 
-    #[cfg(all(feature = "async", any(target_os = "linux", target_os = "macos")))]
+    #[cfg(all(
+        feature = "async",
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    ))]
     pub fn build_async(&self) -> Result<AsyncTun> {
         self.ensure_valid()?;
 

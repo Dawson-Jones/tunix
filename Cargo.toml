@@ -13,7 +13,7 @@ description = "Cross-platform TUN device implementation"
 [dependencies]
 libc = "0.2"
 thiserror = "1.0.48"
-tokio = { version = "1", features = ["net", "macros"], optional = true }
+tokio = { version = "1", features = ["net", "macros", "sync"], optional = true }
 tokio-util = { version = "0.7", features = ["codec"], optional = true }
 bytes = { version = "1", optional = true }
 byteorder = { version = "1", optional = true }

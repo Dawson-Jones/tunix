@@ -50,6 +50,18 @@ impl PacketProtocol {
             )),
         }
     }
+
+    #[cfg(target_os = "windows")]
+    pub fn into_pi_field(self) -> Result<u16, io::Error> {
+        match self {
+            PacketProtocol::Ipv4 => Ok(0x0800),
+            PacketProtocol::Ipv6 => Ok(0x86dd),
+            PacketProtocol::Other(p) => Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("neither an Ipv4 nor Ipv6 packet: {p}"),
+            )),
+        }
+    }
 }
 
 pub struct TunPacket(PacketProtocol, Bytes);

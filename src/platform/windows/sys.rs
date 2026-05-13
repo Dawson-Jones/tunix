@@ -3,8 +3,8 @@ use std::io;
 use windows::Win32::{
     NetworkManagement::{
         IpHelper::{
-            GetIpInterfaceEntry, InitializeIpInterfaceEntry, SetIpInterfaceEntry,
-            MIB_IPINTERFACE_ROW,
+            GetIpInterfaceEntry, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW,
+            SetIpInterfaceEntry,
         },
         Ndis::NET_LUID_LH,
     },

@@ -72,6 +72,11 @@ mod test {
     #[test]
     #[cfg(target_os = "macos")]
     fn create() {
+        if unsafe { libc::geteuid() } != 0 {
+            eprintln!("skipping macOS TUN create test: root privileges required");
+            return;
+        }
+
         let mut config = Configuration::default();
 
         let dev = config
