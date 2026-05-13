@@ -1,9 +1,13 @@
-use tunix::{Configuration, TunPacket};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use futures::{SinkExt, StreamExt};
-use packet::{icmp, ip, Builder, Packet};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use packet::{Builder, Packet, icmp, ip};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use tunix::{Configuration, TunPacket};
 
 // sudo route -q -n add -inet 192.168.108.0/24 -interface utun8
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dev = Configuration::default()
@@ -45,4 +49,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn main() {
+    eprintln!("async TUN examples are only supported on Linux and macOS");
 }

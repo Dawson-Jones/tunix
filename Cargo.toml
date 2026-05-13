@@ -21,10 +21,12 @@ byteorder = { version = "1", optional = true }
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27.1", default-features = false, features = ["ioctl"] }
 
+# TODO: widen this to cfg(unix) if another Unix backend needs ioctl-sys.
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 ioctl = { version = "0.8", package = "ioctl-sys" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# Keep this aligned with wintun's windows dependency so NET_LUID_LH is a single shared type.
 windows = { version = "0.51", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
@@ -45,15 +47,12 @@ packet = "0.1"
 
 [[example]]
 name = "async_read"
-# required-features = ["async", "tokio/rt-multi-thread"]
-# required-features = ["async"]
+required-features = ["async"]
 
 [[example]]
 name = "async_stream"
-# required-features = ["async", "tokio/rt-multi-thread"]
-# required-features = ["async"]
+required-features = ["async"]
 
 [[example]]
 name = "async_ping"
-# required-features = ["async", "tokio/rt-multi-thread"]
-# required-features = ["async"]
+required-features = ["async"]

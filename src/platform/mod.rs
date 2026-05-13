@@ -31,6 +31,7 @@ pub(crate) mod posix {
 
 #[cfg(test)]
 mod test {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use std::net::Ipv4Addr;
 
     use crate::{configuration::Configuration, interface::Interface};
@@ -95,5 +96,16 @@ mod test {
         );
 
         assert_eq!(1400, dev.mtu().unwrap());
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    #[ignore]
+    fn create_for_windows() {
+        let mut config = Configuration::default();
+
+        let dev = config.name("tunix-test").build().unwrap();
+
+        assert_eq!("tunix-test", dev.name().unwrap());
     }
 }

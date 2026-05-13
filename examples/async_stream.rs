@@ -1,7 +1,11 @@
-use tunix::Configuration;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use futures::StreamExt;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use packet::ip::Packet;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use tunix::Configuration;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::main]
 async fn main() {
     let dev = Configuration::default()
@@ -18,4 +22,9 @@ async fn main() {
             Err(err) => panic!("Error: {:?}", err),
         }
     }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn main() {
+    eprintln!("async TUN examples are only supported on Linux and macOS");
 }
