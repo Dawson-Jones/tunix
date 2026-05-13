@@ -96,11 +96,13 @@ impl IntoIpv4Addr for SocketAddr {
     }
 }
 
+#[cfg(unix)]
 pub trait Ipv4AddrExt {
     fn to_sockaddr(&self) -> libc::sockaddr;
     fn from_sockaddr(sock: libc::sockaddr) -> Self;
 }
 
+#[cfg(unix)]
 impl Ipv4AddrExt for Ipv4Addr {
     fn to_sockaddr(&self) -> libc::sockaddr {
         let mut addr: libc::sockaddr_in = unsafe { std::mem::zeroed() };

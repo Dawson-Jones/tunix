@@ -2,14 +2,12 @@ use std::net::Ipv4Addr;
 
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
-#[cfg(windows)]
-use std::os::windows::raw::HANDLE;
 
-#[cfg(feature = "async")]
-use crate::AsyncTun;
 use crate::address::IntoIpv4Addr;
 use crate::error::{Error, Result};
 use crate::tun::{Tun, TunConf};
+#[cfg(all(feature = "async", any(target_os = "linux", target_os = "macos")))]
+use crate::AsyncTun;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Layer {
@@ -36,10 +34,6 @@ pub struct Configuration {
     pub(crate) queues: Option<usize>,
     #[cfg(unix)]
     pub(crate) raw_fd: Option<RawFd>,
-    #[cfg(not(unix))]
-    pub(crate) raw_fd: Option<i32>,
-    #[cfg(windows)]
-    pub(crate) raw_handle: Option<HANDLE>,
 }
 
 impl Configuration {
@@ -119,16 +113,6 @@ impl Configuration {
         self.raw_fd = Some(fd);
         self
     }
-    #[cfg(not(unix))]
-    pub fn raw_fd(&mut self, fd: i32) -> &mut Self {
-        self.raw_fd = Some(fd);
-        self
-    }
-    #[cfg(windows)]
-    pub fn raw_handle(&mut self, handle: HANDLE) -> &mut Self {
-        self.raw_handle = Some(handle);
-        self
-    }
 
     pub fn build(&self) -> Result<Tun> {
         self.ensure_valid()?;
@@ -146,15 +130,14 @@ impl Configuration {
         Tun::new_multi_queue(self)
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", any(target_os = "linux", target_os = "macos")))]
     pub fn build_async(&self) -> Result<AsyncTun> {
         self.ensure_valid()?;
 
         AsyncTun::new(Tun::new(self)?)
     }
 
-    #[cfg(feature = "async")]
-    #[cfg(target_os = "linux")]
+    #[cfg(all(feature = "async", target_os = "linux"))]
     pub fn build_async_multi_queue(&self) -> Result<Vec<AsyncTun>> {
         self.ensure_valid()?;
 

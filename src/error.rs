@@ -26,6 +26,7 @@ pub enum Error {
     #[error("invalid queues number")]
     InvalidQueuesNumber,
 
+    #[cfg(unix)]
     #[error("{0}")]
     NixError(#[from] nix::Error),
 

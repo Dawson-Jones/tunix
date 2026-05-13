@@ -14,6 +14,14 @@ mod macos {
 #[cfg(target_os = "macos")]
 pub use macos::tun;
 
+#[cfg(target_os = "windows")]
+mod windows {
+    mod sys;
+    pub mod tun;
+}
+#[cfg(target_os = "windows")]
+pub use windows::tun;
+
 #[cfg(unix)]
 pub(crate) mod posix {
     pub mod fd;
@@ -61,6 +69,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn create() {
         let mut config = Configuration::default();
 
