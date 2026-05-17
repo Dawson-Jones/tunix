@@ -27,6 +27,11 @@ pub fn set_mtu(luid: NET_LUID_LH, mtu: i32) -> io::Result<()> {
         GetIpInterfaceEntry(&mut row).map_err(io::Error::other)?;
     }
     row.NlMtu = mtu;
+    // On Windows, GetIpInterfaceEntry can return an IPv4 row with
+    // SitePrefixLength set to an IPv6-sized value (e.g. 64).
+    // SetIpInterfaceEntry validates the full row, so normalize this before
+    // writing the MTU back.
+    row.SitePrefixLength = 0;
     unsafe {
         SetIpInterfaceEntry(&mut row).map_err(io::Error::other)?;
     }
