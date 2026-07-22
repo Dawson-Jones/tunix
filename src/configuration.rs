@@ -1,8 +1,5 @@
 use std::net::Ipv4Addr;
 
-#[cfg(unix)]
-use std::os::unix::io::RawFd;
-
 #[cfg(all(
     feature = "async",
     any(target_os = "linux", target_os = "macos", target_os = "windows")
@@ -35,8 +32,6 @@ pub struct Configuration {
     pub(crate) enabled: bool,
     pub(crate) layer: Layer,
     pub(crate) queues: Option<usize>,
-    #[cfg(unix)]
-    pub(crate) raw_fd: Option<RawFd>,
 }
 
 impl Configuration {
@@ -111,19 +106,9 @@ impl Configuration {
         self
     }
 
-    #[cfg(unix)]
-    pub fn raw_fd(&mut self, fd: RawFd) -> &mut Self {
-        self.raw_fd = Some(fd);
-        self
-    }
-
     pub fn build(&self) -> Result<Tun> {
-        self.ensure_valid()?;
-
-        match self.queues {
-            Some(n) if n > 1 => Err(Error::InvalidConfig),
-            _ => Tun::new(self),
-        }
+        self.ensure_single_queue()?;
+        Tun::new(self)
     }
 
     #[cfg(target_os = "linux")]
@@ -138,7 +123,7 @@ impl Configuration {
         any(target_os = "linux", target_os = "macos", target_os = "windows")
     ))]
     pub fn build_async(&self) -> Result<AsyncTun> {
-        self.ensure_valid()?;
+        self.ensure_single_queue()?;
 
         AsyncTun::new(Tun::new(self)?)
     }
@@ -153,6 +138,18 @@ impl Configuration {
     fn ensure_valid(&self) -> Result<()> {
         if self.invalid_address {
             return Err(Error::InvalidAddress);
+        }
+        if self.queues == Some(0) {
+            return Err(Error::InvalidQueuesNumber);
+        }
+
+        Ok(())
+    }
+
+    fn ensure_single_queue(&self) -> Result<()> {
+        self.ensure_valid()?;
+        if self.queues.unwrap_or(1) > 1 {
+            return Err(Error::InvalidQueuesNumber);
         }
 
         Ok(())
@@ -170,5 +167,23 @@ mod tests {
         let result = config.address("not an ip").build();
 
         assert!(matches!(result, Err(Error::InvalidAddress)));
+    }
+
+    #[test]
+    fn single_queue_build_rejects_zero_and_multiple_queues() {
+        for queues in [0, 2] {
+            let result = Configuration::default().queues(queues).build();
+            assert!(matches!(result, Err(Error::InvalidQueuesNumber)));
+        }
+    }
+
+    #[test]
+    #[cfg(all(
+        feature = "async",
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    ))]
+    fn single_queue_async_build_rejects_multiple_queues() {
+        let result = Configuration::default().queues(2).build_async();
+        assert!(matches!(result, Err(Error::InvalidQueuesNumber)));
     }
 }

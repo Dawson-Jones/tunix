@@ -4,12 +4,13 @@ use std::net::Ipv4Addr;
 use std::os::fd::{AsRawFd, RawFd};
 use std::{io, mem};
 
+use crate::Configuration;
 use crate::address::Ipv4AddrExt;
 use crate::configuration::Layer;
+use crate::error::{Error, Result};
 use crate::interface::Interface;
+use crate::platform::posix::sys::cvt;
 use crate::platform::posix::{fd::Fd, name::write_if_name};
-use crate::{configuration::Configuration, error::Error};
-use crate::{error::*, syscall};
 use libc::{c_char, c_uchar, c_uint, socklen_t};
 
 use super::sys::*;
@@ -48,17 +49,24 @@ pub struct Tun {
     pub(crate) ctl: Fd,
 }
 
+fn utun_unit(name: &str) -> Result<u32> {
+    if name.len() >= libc::IFNAMSIZ {
+        return Err(Error::NameTooLong);
+    }
+    let index = name
+        .strip_prefix("utun")
+        .ok_or(Error::InvalidName)?
+        .parse::<u32>()?;
+
+    index.checked_add(1).ok_or(Error::InvalidName)
+}
+
 impl Tun {
     pub fn new(config: &Configuration) -> Result<Self> {
         let id = if let Some(name) = config.name.as_ref() {
-            if name.len() > libc::IFNAMSIZ {
-                return Err(Error::NameTooLong);
-            }
-            if !name.starts_with("utun") {
-                return Err(Error::InvalidName);
-            }
-
-            name[4..].parse::<u32>()? + 1u32 // why?
+            // The control API uses one-based units while interface names use a
+            // zero-based suffix (utun0 maps to sc_unit 1).
+            utun_unit(name)?
         } else {
             0u32
         };
@@ -72,12 +80,7 @@ impl Tun {
             return Err(Error::InvalidQueuesNumber);
         }
 
-        let tun_fd = syscall!(socket(
-            libc::AF_SYSTEM,
-            libc::SOCK_DGRAM,
-            libc::SYSPROTO_CONTROL
-        ))?;
-        let tun_fd = Fd::new(tun_fd)?;
+        let tun_fd = Fd::socket(libc::AF_SYSTEM, libc::SOCK_DGRAM, libc::SYSPROTO_CONTROL)?;
 
         // get ctl id with utun control name
         let mut info: libc::ctl_info = unsafe { std::mem::zeroed() };
@@ -86,11 +89,14 @@ impl Tun {
             .zip(info.ctl_name.iter_mut())
             .for_each(|(b, ptr)| *ptr = b as c_char);
         info.ctl_id = 0;
-        syscall!(ioctl(
-            tun_fd.as_raw_fd(),
-            libc::CTLIOCGINFO,
-            &mut info as *mut _ as *mut libc::c_void
-        ))?;
+        // SAFETY: info is a writable ctl_info value for the duration of ioctl.
+        cvt(unsafe {
+            libc::ioctl(
+                tun_fd.as_raw_fd(),
+                libc::CTLIOCGINFO,
+                &mut info as *mut _ as *mut libc::c_void,
+            )
+        })?;
 
         // connect to sys control interface
         let mut addr: libc::sockaddr_ctl = unsafe { std::mem::zeroed() };
@@ -100,27 +106,31 @@ impl Tun {
         addr.sc_id = info.ctl_id;
         addr.sc_unit = id as c_uint;
         // addr.sc_reserved = [0; 5];
-        syscall!(connect(
-            tun_fd.as_raw_fd(),
-            &addr as *const libc::sockaddr_ctl as *const libc::sockaddr,
-            mem::size_of::<libc::sockaddr_ctl>() as libc::socklen_t
-        ))?;
-
-        // todo: set nonblonking
+        // SAFETY: addr points to a fully initialized sockaddr_ctl of the supplied length.
+        cvt(unsafe {
+            libc::connect(
+                tun_fd.as_raw_fd(),
+                &addr as *const libc::sockaddr_ctl as *const libc::sockaddr,
+                mem::size_of::<libc::sockaddr_ctl>() as libc::socklen_t,
+            )
+        })?;
 
         // get interface name
         let mut ifname = [0i8; libc::IFNAMSIZ];
-        let mut len = ifname.len();
-        syscall!(getsockopt(
-            tun_fd.as_raw_fd(),
-            libc::SYSPROTO_CONTROL,
-            libc::UTUN_OPT_IFNAME,
-            ifname.as_mut_ptr() as *mut libc::c_void,
-            &mut len as *mut usize as *mut socklen_t
-        ))?;
+        let mut len = ifname.len() as socklen_t;
+        // SAFETY: ifname is writable for len bytes and len has the expected socklen_t type.
+        cvt(unsafe {
+            libc::getsockopt(
+                tun_fd.as_raw_fd(),
+                libc::SYSPROTO_CONTROL,
+                libc::UTUN_OPT_IFNAME,
+                ifname.as_mut_ptr() as *mut libc::c_void,
+                &mut len,
+            )
+        })?;
 
         // new a control fd
-        let ctl_fd = syscall!(socket(libc::AF_INET, libc::SOCK_DGRAM, 0))?;
+        let ctl = Fd::socket(libc::AF_INET, libc::SOCK_DGRAM, 0)?;
 
         let mut tun = Self {
             name: unsafe {
@@ -129,7 +139,7 @@ impl Tun {
                     .to_string()
             },
             queue: Queue { tun: tun_fd },
-            ctl: Fd::new(ctl_fd)?,
+            ctl,
         };
 
         tun.configure(config)?;
@@ -172,6 +182,10 @@ impl Tun {
         self.queue.has_packet_information()
     }
 
+    pub fn layer(&self) -> Layer {
+        Layer::L3
+    }
+
     pub fn set_nonblocking(&self) -> io::Result<()> {
         self.queue.set_nonblocking()
     }
@@ -183,7 +197,7 @@ impl Tun {
 
 impl AsRawFd for Tun {
     fn as_raw_fd(&self) -> RawFd {
-        self.queue.tun.0
+        self.queue.tun.as_raw_fd()
     }
 }
 
@@ -331,5 +345,20 @@ impl Write for Tun {
 
     fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
         self.queue.tun.write_vectored(bufs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::utun_unit;
+    use crate::Error;
+
+    #[test]
+    fn utun_unit_is_checked_and_one_based() {
+        assert_eq!(utun_unit("utun0").unwrap(), 1);
+        assert!(matches!(
+            utun_unit("utun4294967295"),
+            Err(Error::InvalidName)
+        ));
     }
 }

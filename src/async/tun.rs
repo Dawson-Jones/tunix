@@ -1,6 +1,4 @@
 use std::io::{self, Read, Write};
-#[cfg(target_os = "windows")]
-use std::mem;
 use std::task::{Poll, ready};
 
 use crate::interface::Interface;
@@ -16,6 +14,8 @@ use tokio_util::codec::Framed;
 
 use super::codec::TunPacketCodec;
 
+const DEFAULT_MTU: usize = 1500;
+
 #[cfg(unix)]
 pub struct AsyncTun {
     inner: AsyncFd<Tun>,
@@ -24,10 +24,12 @@ pub struct AsyncTun {
 #[cfg(target_os = "windows")]
 pub struct AsyncTun {
     inner: Tun,
-    read_rx: mpsc::UnboundedReceiver<io::Result<Bytes>>,
+    read_rx: mpsc::Receiver<io::Result<Bytes>>,
     pending_read: Bytes,
-    read_thread: Option<std::thread::JoinHandle<()>>,
 }
+
+#[cfg(target_os = "windows")]
+const READ_QUEUE_CAPACITY: usize = 64;
 
 impl AsyncTun {
     pub fn new(tun: Tun) -> Result<AsyncTun> {
@@ -38,11 +40,20 @@ impl AsyncTun {
         tuns.into_iter().map(AsyncTun::new).collect()
     }
 
-    pub fn into_framed(mut self) -> Framed<Self, TunPacketCodec> {
-        let pi = self.get_mut().has_packet_information();
-        let codec = TunPacketCodec::new(pi, self.get_ref().mtu().unwrap_or(1500 + 4));
+    pub fn into_framed(self) -> Framed<Self, TunPacketCodec> {
+        let pi = self.get_ref().has_packet_information();
+        let layer = self.get_ref().layer();
+        let mtu = self
+            .get_ref()
+            .mtu()
+            .ok()
+            .and_then(|mtu| usize::try_from(mtu).ok())
+            .filter(|mtu| *mtu > 0)
+            .unwrap_or(DEFAULT_MTU);
+        let codec = TunPacketCodec::new(pi, layer, mtu);
+        let capacity = codec.frame_capacity();
 
-        Framed::new(self, codec)
+        Framed::with_capacity(self, codec, capacity)
     }
 }
 
@@ -69,31 +80,40 @@ impl AsyncTun {
 impl AsyncTun {
     fn new_inner(tun: Tun) -> Result<AsyncTun> {
         let mut reader = tun.reader_queue();
-        let (read_tx, read_rx) = mpsc::unbounded_channel();
-        let mtu = tun.mtu().unwrap_or(1500);
-        let read_thread = std::thread::spawn(move || {
-            let mut buf = vec![0u8; mtu.max(1500) as usize + 4];
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) => return,
-                    Ok(n) => {
-                        if read_tx.send(Ok(Bytes::copy_from_slice(&buf[..n]))).is_err() {
+        let (read_tx, read_rx) = mpsc::channel(READ_QUEUE_CAPACITY);
+        let mtu = tun
+            .mtu()
+            .ok()
+            .and_then(|mtu| usize::try_from(mtu).ok())
+            .filter(|mtu| *mtu > 0)
+            .unwrap_or(DEFAULT_MTU);
+        std::thread::Builder::new()
+            .name("tunix-wintun-reader".into())
+            .spawn(move || {
+                let mut buf = vec![0u8; mtu];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => return,
+                        Ok(n) => {
+                            if read_tx
+                                .blocking_send(Ok(Bytes::copy_from_slice(&buf[..n])))
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
+                        Err(error) => {
+                            let _ = read_tx.blocking_send(Err(error));
                             return;
                         }
                     }
-                    Err(error) => {
-                        let _ = read_tx.send(Err(error));
-                        return;
-                    }
                 }
-            }
-        });
+            })?;
 
         Ok(AsyncTun {
             inner: tun,
             read_rx,
             pending_read: Bytes::new(),
-            read_thread: Some(read_thread),
         })
     }
 
@@ -219,14 +239,11 @@ impl AsyncWrite for AsyncTun {
 #[cfg(target_os = "windows")]
 impl Drop for AsyncTun {
     fn drop(&mut self) {
+        // Closing the bounded channel releases a reader blocked by backpressure;
+        // shutting down the session releases one blocked in receive_blocking.
+        // The worker owns only an Arc-backed queue, so it can finish independently
+        // without making Drop wait on an unbounded thread join.
+        self.read_rx.close();
         let _ = self.inner.cancel_nonblocking();
-        if let Some(read_thread) = self.read_thread.take() {
-            let current = std::thread::current().id();
-            if read_thread.thread().id() != current {
-                let _ = read_thread.join();
-            } else {
-                mem::forget(read_thread);
-            }
-        }
     }
 }

@@ -153,6 +153,10 @@ impl Tun {
         self.queue.has_packet_information()
     }
 
+    pub fn layer(&self) -> Layer {
+        Layer::L3
+    }
+
     pub fn set_nonblocking(&self) -> io::Result<()> {
         // Wintun exposes event-driven reads, but this blocking Read/Write API has no nonblocking mode.
         Ok(())
