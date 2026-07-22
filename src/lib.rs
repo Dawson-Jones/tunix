@@ -1,5 +1,5 @@
 mod configuration;
-pub use configuration::Configuration;
+pub use configuration::{Configuration, Layer};
 
 mod address;
 mod error;

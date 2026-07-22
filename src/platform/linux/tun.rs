@@ -4,7 +4,6 @@ use crate::{
     error::{Error, Result},
     interface::Interface,
     platform::posix::{fd::Fd, name::write_if_name},
-    syscall,
 };
 use libc::{c_int, c_short};
 use std::{
@@ -58,18 +57,22 @@ pub struct Tun {
     name: Arc<Mutex<String>>,
     queue: Queue,
     ctl: Arc<Mutex<Fd>>,
+    layer: Layer,
 }
 
 impl Tun {
     pub fn new(config: &Configuration) -> Result<Self> {
+        if config.queues.unwrap_or(1) > 1 {
+            return Err(Error::InvalidQueuesNumber);
+        }
+
         Tun::new_multi_queue(config)?
             .pop()
             .ok_or(Error::InvalidQueuesNumber)
     }
 
     pub fn new_multi_queue(config: &Configuration) -> Result<Vec<Self>> {
-        let ctl_fd = syscall!(socket(libc::AF_INET, libc::SOCK_DGRAM, 0))?;
-        let ctl = Fd::new(ctl_fd)?;
+        let ctl = Fd::socket(libc::AF_INET, libc::SOCK_DGRAM, 0)?;
         let ctl = Arc::new(Mutex::new(ctl));
         let name = Arc::new(Mutex::new(String::new()));
 
@@ -96,8 +99,7 @@ impl Tun {
             };
 
         for _ in 0..queue_nums {
-            let tun_fd = syscall!(open(b"/dev/net/tun\0".as_ptr() as *const _, libc::O_RDWR))?;
-            let tun_fd = Fd::new(tun_fd)?;
+            let tun_fd = Fd::open(c"/dev/net/tun", libc::O_RDWR)?;
 
             unsafe {
                 tunsetiff(
@@ -114,6 +116,7 @@ impl Tun {
                 name: name.clone(),
                 queue,
                 ctl: ctl.clone(),
+                layer: config.layer,
             };
             tuns.push(tun);
         }
@@ -148,6 +151,10 @@ impl Tun {
 
     pub fn has_packet_information(&self) -> bool {
         self.queue.has_packet_information()
+    }
+
+    pub fn layer(&self) -> Layer {
+        self.layer
     }
 }
 
